@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>英语智能背词打卡系统</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<style>
+body{
+  font-family:Arial;
+  padding:20px;
+  max-width:900px;
+  margin:auto;
+}
+button,input,select{
+  padding:10px;
+  margin:6px;
+  font-size:16px;
+}
+.word{
+  font-size:28px;
+  font-weight:bold;
+  cursor:pointer;
+}
+.example{
+  color:#555;
+  margin-top:5px;
+  cursor:pointer;
+}
+.card{
+  border:1px solid #ddd;
+  padding:15px;
+  border-radius:10px;
+  margin-top:15px;
+}
+.info{
+  color:#666;
+  margin-top:10px;
+}
+canvas{
+  position:fixed;
+  left:0;
+  top:0;
+  pointer-events:none;
+}
+
+/* 🌈 词性颜色 */
+.pos-noun{color:#3498db;}      /* 名词 */
+.pos-verb{color:#e74c3c;}      /* 动词 */
+.pos-adjective{color:#2ecc71;} /* 形容词 */
+.pos-adverb{color:#9b59b6;}    /* 副词 */
+.pos-other{color:#95a5a6;}     /* 其他 */
+</style>
+</head>
+
+<body>
+
+<h1>英语智能背词打卡平台</h1>
+
+<label>每日单词数：</label>
+<input type="number" id="dailyCount" value="10" min="1">
+
+<label>顺序：</label>
+<select id="orderMode">
+  <option value="fixed">固定顺序</option>
+  <option value="random">随机顺序</option>
+</select>
+
+<label>发音：</label>
+<select id="voiceType">
+  <option value="en-US">美式</option>
+  <option value="en-GB">英式</option>
+</select>
+
+<div>
+  <button onclick="setMode('view')">📖 浏览模式</button>
+  <button onclick="setMode('spell')">✍ 拼写模式</button>
+</div>
+
+<button onclick="start()">开始今日打卡</button>
+
+<div id="card" class="card"></div>
+<div id="progress" class="info"></div>
+<div id="record" class="info"></div>
+
+<canvas id="fireworks"></canvas>
+
+<script>
+/* ================== 配置 ================== */
+const CACHE_KEY="WORD_CACHE_V4";
+const RECORD_KEY="PUNCH_RECORD";
+const TREE_INDEX_KEY="TREE_RECORD_INDEX";
+const WORD_URL="https://raw.githubusercontent.com/first20hours/google-10000-english/master/google-10000-english-no-swears.txt";
+
+let cet4=[], cet6=[];
+let mode="view";
+let todayList=[], index=0;
+
+/* ================== 获取单词详情（含词性） ================== */
+async function getWordDetail(word){
+  let result={
+    cn:"暂无中文翻译",
+    en:`This is an example for ${word}.`,
+    cnEx:`这是一个关于 ${word} 的例句。`,
+    pos:"other"
+  };
+
+  try{
+    const res=await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+    const data=await res.json();
+    const meaning=data[0]?.meanings?.[0];
+    if(meaning){
+      result.pos=meaning.partOfSpeech || "other";
+      const def=meaning.definitions?.[0];
+      if(def?.example) result.en=def.example;
+    }
+  }catch(e){}
+
+  try{
+    const res2=await fetch(`https://api.mymemory.translated.net/get?q=${word}&langpair=en|zh`);
+    const data2=await res2.json();
+    result.cn=data2?.responseData?.translatedText || result.cn;
+  }catch(e){}
+
+  try{
+    const res3=await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(result.en)}&langpair=en|zh`
+    );
+    const data3=await res3.json();
+    result.cnEx=data3?.responseData?.translatedText || result.cnEx;
+  }catch(e){}
+
+  return result;
+}
+
+/* ================== 模式切换 ================== */
+function setMode(m){
+  mode=m;
+  showWord();
+}
+
+/* ================== 加载词库 ================== */
+async function loadWords(){
+  if(localStorage.getItem(CACHE_KEY)){
+    const d=JSON.parse(localStorage.getItem(CACHE_KEY));
+    cet4=d.cet4; cet6=d.cet6;
+    return;
+  }
+  const res=await fetch(WORD_URL);
+  const txt=await res.text();
+  const all=txt.split("\n").filter(x=>x.trim());
+  cet4=all.slice(0,3000).map(w=>({w}));
+  cet6=all.slice(3000,6000).map(w=>({w}));
+  localStorage.setItem(CACHE_KEY,JSON.stringify({cet4,cet6}));
+}
+loadWords();
+
+/* ================== 发音 ================== */
+function speak(t){
+  const u=new SpeechSynthesisUtterance(t);
+  u.lang=document.getElementById("voiceType").value;
+  speechSynthesis.speak(u);
+}
+
+/* ================== 开始 ================== */
+function start(){
+  const n=parseInt(dailyCount.value);
+  const order=orderMode.value;
+  let pool=[...cet4,...cet6];
+  if(order==="random") pool.sort(()=>Math.random()-0.5);
+  todayList=pool.slice(0,n);
+  index=0;
+  showWord();
+}
+
+/* ================== 挖空 ================== */
+function maskWord(w){
+  const a=w.split("");
+  const c=Math.max(1,Math.floor(w.length/3));
+  const s=new Set();
+  while(s.size<c) s.add(Math.floor(Math.random()*w.length));
+  s.forEach(i=>a[i]="_");
+  return a.join("");
+}
+
+/* ================== 显示 ================== */
+async function showWord(){
+  const box=document.getElementById("card");
+  if(!todayList.length) return;
+
+  if(index>=todayList.length){
+    completePunch();
+    return;
+  }
+
+  const w=todayList[index];
+  box.innerHTML="正在加载单词详情…";
+  const d=await getWordDetail(w.w);
+
+  if(mode==="view"){
+    box.innerHTML=`
+      <div class="word pos-${d.pos}" onclick="speak('${w.w}')">${w.w}</div>
+      <div>中文：${d.cn}</div>
+      <div class="example" onclick="speak('${d.en}')">${d.en}<br>${d.cnEx}</div>
+      <button onclick="nextWord()">下一个</button>
+    `;
+  }else{
+    box.innerHTML=`
+      <div class="word">${maskWord(w.w)}</div>
+      <div>中文：${d.cn}</div>
+      <div class="example" onclick="speak('${d.en}')">${d.en}<br>${d.cnEx}</div>
+      <input id="spellInput" placeholder="输入完整单词">
+      <button onclick="checkSpell()">提交</button>
+    `;
+  }
+
+  progress.innerText=`进度：${index+1} / ${todayList.length}`;
+}
+
+/* ================== 下一题 ================== */
+function nextWord(){ index++; showWord(); }
+function checkSpell(){
+  const user=spellInput.value.trim().toLowerCase();
+  const cor=todayList[index].w.toLowerCase();
+  alert(user===cor?"✅ 正确":"❌ 正确为："+cor);
+  index++; showWord();
+}
+
+/* ================== 打卡完成 ================== */
+function completePunch(){
+  const now=new Date();
+  const date=now.toLocaleDateString();
+  const time=now.toLocaleTimeString();
+
+  const rec=JSON.parse(localStorage.getItem(RECORD_KEY)||"[]");
+  rec.push({
+    date,
+    time,
+    words: todayList.map(x=>x.w)
+  });
+  localStorage.setItem(RECORD_KEY,JSON.stringify(rec));
+  localStorage.setItem(TREE_INDEX_KEY, rec.length-1);
+
+  card.innerHTML="🎉 今日打卡完成！";
+  progress.innerText=`累计打卡：${rec.length} 天`;
+  showRecord();
+  firework();
+}
+
+/* ================== 显示记录 ================== */
+function showRecord(){
+  const rec=JSON.parse(localStorage.getItem(RECORD_KEY)||"[]");
+  record.innerHTML="📝 打卡记录：<br>"+rec.slice(-5).reverse()
+    .map(r=>`${r.date} ${r.time}`).join("<br>");
+}
+showRecord();
+
+/* ================== 烟花 ================== */
+function firework(){
+  const c=fireworks;
+  const ctx=c.getContext("2d");
+  c.width=innerWidth; c.height=innerHeight;
+  let p=[];
+  for(let i=0;i<80;i++){
+    p.push({
+      x:c.width/2,y:c.height/2,
+      vx:(Math.random()-0.5)*6,
+      vy:(Math.random()-0.5)*6,
+      life:60
+    });
+  }
+  const t=setInterval(()=>{
+    ctx.clearRect(0,0,c.width,c.height);
+    p.forEach(o=>{
+      ctx.fillStyle=`hsl(${Math.random()*360},100%,60%)`;
+      ctx.beginPath();
+      ctx.arc(o.x,o.y,3,0,Math.PI*2);
+      ctx.fill();
+      o.x+=o.vx; o.y+=o.vy; o.life--;
+    });
+    p=p.filter(o=>o.life>0);
+    if(!p.length) clearInterval(t);
+  },30);
+}
+</script>
+
+</body>
+</html>
