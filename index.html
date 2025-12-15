@@ -45,11 +45,11 @@ canvas{
 }
 
 /* 🌈 词性颜色 */
-.pos-noun{color:#3498db;}      /* 名词 */
-.pos-verb{color:#e74c3c;}      /* 动词 */
-.pos-adjective{color:#2ecc71;} /* 形容词 */
-.pos-adverb{color:#9b59b6;}    /* 副词 */
-.pos-other{color:#95a5a6;}     /* 其他 */
+.pos-noun{color:#3498db;}
+.pos-verb{color:#e74c3c;}
+.pos-adjective{color:#2ecc71;}
+.pos-adverb{color:#9b59b6;}
+.pos-other{color:#95a5a6;}
 </style>
 </head>
 
@@ -185,7 +185,6 @@ function maskWord(w){
 
 /* ================== 显示 ================== */
 async function showWord(){
-  const box=document.getElementById("card");
   if(!todayList.length) return;
 
   if(index>=todayList.length){
@@ -194,18 +193,18 @@ async function showWord(){
   }
 
   const w=todayList[index];
-  box.innerHTML="正在加载单词详情…";
+  card.innerHTML="正在加载单词详情…";
   const d=await getWordDetail(w.w);
 
   if(mode==="view"){
-    box.innerHTML=`
+    card.innerHTML=`
       <div class="word pos-${d.pos}" onclick="speak('${w.w}')">${w.w}</div>
       <div>中文：${d.cn}</div>
       <div class="example" onclick="speak('${d.en}')">${d.en}<br>${d.cnEx}</div>
       <button onclick="nextWord()">下一个</button>
     `;
   }else{
-    box.innerHTML=`
+    card.innerHTML=`
       <div class="word">${maskWord(w.w)}</div>
       <div>中文：${d.cn}</div>
       <div class="example" onclick="speak('${d.en}')">${d.en}<br>${d.cnEx}</div>
@@ -239,7 +238,6 @@ function completePunch(){
     words: todayList.map(x=>x.w)
   });
   localStorage.setItem(RECORD_KEY,JSON.stringify(rec));
-  localStorage.setItem(TREE_INDEX_KEY, rec.length-1);
 
   card.innerHTML="🎉 今日打卡完成！";
   progress.innerText=`累计打卡：${rec.length} 天`;
@@ -247,12 +245,29 @@ function completePunch(){
   firework();
 }
 
-/* ================== 显示记录 ================== */
+/* ================== 显示记录（可点击跳转圣诞树） ================== */
 function showRecord(){
-  const rec=JSON.parse(localStorage.getItem(RECORD_KEY)||"[]");
-  record.innerHTML="📝 打卡记录：<br>"+rec.slice(-5).reverse()
-    .map(r=>`${r.date} ${r.time}`).join("<br>");
+  const rec = JSON.parse(localStorage.getItem(RECORD_KEY) || "[]");
+  let html = "📝 打卡记录：<br>";
+
+  rec.slice(-5).reverse().forEach((r, i) => {
+    const realIndex = rec.length - 1 - i;
+    html += `
+      <div style="cursor:pointer;color:#2c3e50;margin:4px 0"
+           onclick="openTree(${realIndex})">
+        ${r.date} ${r.time} 🌲 查看圣诞树
+      </div>
+    `;
+  });
+
+  record.innerHTML = html;
 }
+
+function openTree(index){
+  localStorage.setItem(TREE_INDEX_KEY, index);
+  window.location.href = "tree.html";
+}
+
 showRecord();
 
 /* ================== 烟花 ================== */
