@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>英语记忆圣诞树</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+html,body{
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  background:#000;
+  font-family:Arial, sans-serif;
+}
+#hint{
+  position:fixed;
+  left:50%;
+  bottom:20px;
+  transform:translateX(-50%);
+  color:#ccc;
+  font-size:14px;
+  opacity:0.8;
+}
+#homeBtn{
+  position:fixed;
+  top:16px;
+  left:16px;
+  z-index:10;
+  padding:8px 14px;
+  font-size:14px;
+  border-radius:8px;
+  border:none;
+  background:rgba(0,0,0,0.6);
+  color:#fff;
+  cursor:pointer;
+}
+#homeBtn:hover{
+  background:rgba(212,175,55,0.9);
+  color:#000;
+}
+</style>
+</head>
+<body>
+
+<button id="homeBtn">🏠 主页</button>
+<div id="hint">🎄 单词会一直绕树旋转 · 点击可复习</div>
+
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
+
+/* ===============================
+   场景
+================================ */
+let scene,camera,renderer;
+let treeGroup=new THREE.Group();
+let clock=new THREE.Clock();
+
+const raycaster=new THREE.Raycaster();
+const mouse=new THREE.Vector2();
+
+init();
+animate();
+
+function init(){
+  scene=new THREE.Scene();
+  scene.fog=new THREE.Fog(0x000000,10,60);
+
+  camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,100);
+  camera.position.set(0,6,18);
+
+  renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth,innerHeight);
+  renderer.setPixelRatio(devicePixelRatio);
+  document.body.appendChild(renderer.domElement);
+
+  scene.add(new THREE.DirectionalLight(0xffffff,1));
+  scene.add(new THREE.AmbientLight(0xffffff,0.4));
+
+  scene.add(treeGroup);
+
+  createTreeParticles();
+  loadWordsFromPunch();
+
+  addEventListener("resize",onResize);
+}
+
+/* ===============================
+   圣诞树粒子（你原本能跑的）
+================================ */
+function createTreeParticles(){
+  const g=new THREE.BufferGeometry();
+  const p=[],c=[];
+  for(let i=0;i<2000;i++){
+    const y=Math.random()*10;
+    const r=(10-y)*0.35*Math.random();
+    const a=Math.random()*Math.PI*2;
+    p.push(Math.cos(a)*r,y,Math.sin(a)*r);
+    const col=new THREE.Color().setHSL(0.33,0.8,0.5);
+    c.push(col.r,col.g,col.b);
+  }
+  g.setAttribute("position",new THREE.Float32BufferAttribute(p,3));
+  g.setAttribute("color",new THREE.Float32BufferAttribute(c,3));
+  treeGroup.add(
+    new THREE.Points(
+      g,
+      new THREE.PointsMaterial({size:0.15,vertexColors:true})
+    )
+  );
+}
+
+/* ===============================
+   背词联动（无相框）
+================================ */
+function loadWordsFromPunch(){
+  const idx=localStorage.getItem("TREE_RECORD_INDEX");
+  const rec=JSON.parse(localStorage.getItem("PUNCH_RECORD")||"[]");
+  if(idx===null||!rec[idx])return;
+
+  rec[idx].words.forEach((word,i)=>{
+    addWordSprite(word,i);
+  });
+}
+
+/* ===============================
+   纯文字 Sprite（重点）
+================================ */
+function addWordSprite(word,i){
+  const c=document.createElement("canvas");
+  c.width=256;
+  c.height=128;
+  const ctx=c.getContext("2d");
+
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.fillStyle="#ffffff";
+  ctx.font="bold 36px Arial";
+  ctx.textAlign="center";
+  ctx.textBaseline="middle";
+  ctx.fillText(word,128,64);
+
+  const tex=new THREE.CanvasTexture(c);
+  const mat=new THREE.SpriteMaterial({map:tex,transparent:true});
+  const sprite=new THREE.Sprite(mat);
+
+  sprite.scale.set(3,1.5,1);
+
+  sprite.userData={
+    angle:i*0.8,
+    radius:3,
+    speed:0.003+Math.random()*0.002,
+    word
+  };
+
+  treeGroup.add(sprite);
+}
+
+/* ===============================
+   点击单词
+================================ */
+addEventListener("click",e=>{
+  mouse.x=(e.clientX/innerWidth)*2-1;
+  mouse.y=-(e.clientY/innerHeight)*2+1;
+  raycaster.setFromCamera(mouse,camera);
+  const hits=raycaster.intersectObjects(treeGroup.children);
+  if(hits.length && hits[0].object.userData.word){
+    localStorage.setItem("REVIEW_WORD",hits[0].object.userData.word);
+    location.href="index.html";
+  }
+});
+
+/* ===============================
+   动画
+================================ */
+function animate(){
+  requestAnimationFrame(animate);
+  const t=clock.getElapsedTime();
+
+  // 心跳
+  const beat=1+Math.sin(t*2.5)*0.03;
+  treeGroup.scale.set(beat,beat,beat);
+
+  // 自动旋转
+  treeGroup.rotation.y+=0.002;
+
+  // 单词绕树
+  treeGroup.children.forEach(obj=>{
+    if(obj.userData.word){
+      obj.userData.angle+=obj.userData.speed;
+      obj.position.set(
+        Math.cos(obj.userData.angle)*obj.userData.radius,
+        1.5+obj.userData.angle%3,
+        Math.sin(obj.userData.angle)*obj.userData.radius
+      );
+    }
+  });
+
+  renderer.render(scene,camera);
+}
+
+function onResize(){
+  camera.aspect=innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+}
+
+/* ===============================
+   主页
+================================ */
+homeBtn.onclick=()=>location.href="index.html";
+</script>
+
+</body>
+</html>
